@@ -1,0 +1,54 @@
+<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>البراعة في الأحياء</title>
+<style>
+:root{--g:#0f9d6b;--gd:#0b4f3a;--gold:#d4a017;--bg:#f3f5f4;--c:#fff;--t:#16302a}
+@media(prefers-color-scheme:dark){:root{--bg:#0e1a16;--c:#16251f;--t:#e6f2ed;--gd:#7fe0b9}}
+*{box-sizing:border-box}body{margin:0;font-family:system-ui,"Noto Naskh Arabic",sans-serif;background:var(--bg);color:var(--t);min-height:100vh;display:grid;place-items:center;padding:16px}
+.card{background:var(--c);width:100%;max-width:400px;border-radius:20px;padding:24px;box-shadow:0 4px 20px #0001}
+h1{color:var(--gd);font-size:22px;margin:0 0 4px}.sub{opacity:.7;margin:0 0 18px;font-size:14px}
+.tabs{display:flex;gap:8px;margin-bottom:14px}.tabs button{flex:1;padding:10px;border:0;border-radius:10px;background:var(--bg);color:var(--t);font:inherit}
+.tabs .on{background:var(--g);color:#fff}
+input,select{width:100%;padding:12px;margin:6px 0;border:1px solid #8884;border-radius:10px;font:inherit;background:var(--bg);color:var(--t)}
+.go{width:100%;padding:13px;margin-top:10px;border:0;border-radius:12px;background:var(--g);color:#fff;font:inherit;font-weight:700}
+.msg{margin-top:10px;font-size:14px;color:#c0392b}.pts{color:var(--gold);font-weight:700}.hide{display:none}
+</style></head><body>
+<div class="card" id="auth"><h1>🧬 البراعة في الأحياء</h1><p class="sub">إعداد الأستاذ محمد برعي الصديق</p>
+<div class="tabs"><button id="tL" class="on">دخول</button><button id="tR">حساب جديد</button></div>
+<input id="name" class="hide" placeholder="اسم الطالب" autocomplete="name">
+<select id="grade" class="hide"><option value="">اختر الصف</option><option value="secondary1">الأول الثانوي</option><option value="secondary2">الثاني الثانوي</option><option value="secondary3">الثالث الثانوي</option></select>
+<input id="email" type="email" placeholder="البريد الإلكتروني" autocomplete="email">
+<input id="pass" type="password" placeholder="كلمة المرور (6 أحرف على الأقل)" autocomplete="current-password">
+<button class="go" id="go">دخول</button><div class="msg" id="msg"></div></div>
+<div class="card hide" id="home"><h1 id="hi"></h1><p class="sub" id="state"></p>
+<p>النقاط: <span class="pts" id="pts">0</span></p><button class="go" id="out">تسجيل الخروج</button></div>
+<script type="module">
+import {firebaseConfig as cfg} from './firebase-config.js';
+const $=id=>document.getElementById(id),msg=t=>$('msg').textContent=t||'';
+if(!cfg.apiKey){msg('لم تُضف إعدادات Firebase بعد. عدّل الملف firebase-config.js.');$('go').disabled=true}
+else{
+const A='https://www.gstatic.com/firebasejs/10.14.1/';
+const [{initializeApp},au,fs]=await Promise.all(['firebase-app','firebase-auth','firebase-firestore'].map(m=>import(A+m+'.js')));
+const app=initializeApp(cfg),auth=au.getAuth(app),db=fs.getFirestore(app);
+let reg=false;
+const mode=r=>{reg=r;$('tL').classList.toggle('on',!r);$('tR').classList.toggle('on',r);$('name').classList.toggle('hide',!r);$('grade').classList.toggle('hide',!r);$('go').textContent=r?'إنشاء الحساب':'دخول';msg()};
+$('tL').onclick=()=>mode(false);$('tR').onclick=()=>mode(true);
+const E={'auth/invalid-credential':'البريد أو كلمة المرور غير صحيحة.','auth/email-already-in-use':'هذا البريد مسجل مسبقًا.','auth/weak-password':'كلمة المرور ضعيفة.','auth/invalid-email':'البريد غير صالح.','auth/network-request-failed':'تعذر الاتصال بالإنترنت.'};
+$('go').onclick=async()=>{msg();$('go').disabled=true;try{
+ const e=$('email').value.trim(),p=$('pass').value;
+ if(reg){if(!$('grade').value)throw{message:'اختر الصف الدراسي.'};
+  await au.createUserWithEmailAndPassword(auth,e,p);
+  const uid=auth.currentUser.uid,b=fs.writeBatch(db),st=fs.serverTimestamp();
+  b.set(fs.doc(db,'students',uid),{displayName:$('name').value.trim(),gradeId:$('grade').value,avatar:null,points:0,createdAt:st});
+  b.set(fs.doc(db,'trials',uid),{uid,startedAt:st});await b.commit();
+ }else await au.signInWithEmailAndPassword(auth,e,p);
+}catch(x){msg(E[x.code]||x.message||'حدث خطأ، حاول مرة أخرى.')}$('go').disabled=false};
+$('out').onclick=()=>au.signOut(auth);
+au.onAuthStateChanged(auth,async u=>{$('auth').classList.toggle('hide',!!u);$('home').classList.toggle('hide',!u);if(!u)return;
+ try{const s=await fs.getDoc(fs.doc(db,'students',u.uid));const d=s.data()||{};$('hi').textContent='مرحبًا '+(d.displayName||'');$('pts').textContent=d.points||0;
+ const now=Date.now(),L=(ms)=>Math.max(0,Math.ceil((ms-now)/864e5));
+ const sb=await fs.getDoc(fs.doc(db,'subscriptions',u.uid)),tr=await fs.getDoc(fs.doc(db,'trials',u.uid));
+ const sl=sb.exists()?L(sb.data().endsAt.toMillis()):0,tl=tr.exists()&&tr.data().startedAt?L(tr.data().startedAt.toMillis()+7*864e5):0;
+ $('state').textContent=sl?`اشتراك فعّال: متبقي ${sl} يوم`:tl?`فترة تجريبية: متبقي ${tl} يوم`:'انتهت الفترة التجريبية'}
+ catch{$('state').textContent='تعذر تحميل الحالة، تحقق من الاتصال.'}});
+}
+</script></body></html>
